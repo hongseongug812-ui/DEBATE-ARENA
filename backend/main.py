@@ -1,6 +1,9 @@
 """
 main.py — FastAPI 백엔드: 멀티에이전트 동적 토론 엔진 + SSE 스트리밍
-세션 기반 피드백 재토론 지원
+- SQLite 세션 영속화
+- 스마트 비용 최적화 (라운드별 모델 선택)
+- 에러 핸들링 + retry
+- 사용량 로깅
 """
 
 import json
@@ -14,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIConnectionError
 from dotenv import load_dotenv
 
 from agents import (
@@ -25,10 +28,18 @@ from agents import (
     FEEDBACK_PROMPT,
     CONVERGENCE_CHECK_SYSTEM,
 )
+from database import init_db, save_session, load_session, log_usage
 
 load_dotenv()
 
-app = FastAPI(title="Debate Arena API", version="3.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    await init_db()
+    yield
+
+app = FastAPI(title="Debate Arena API", version="3.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,8 +55,15 @@ DEBATE_AGENTS = ["optimist", "critic", "realist", "businessman", "veteran"]
 MAX_DEBATE_ROUNDS = 6
 MIN_DEBATE_ROUNDS = 4
 
-# 세션 저장소 (메모리)
-sessions: dict[str, dict] = {}
+# 비용 최적화: 초기·중간 라운드는 mini, 심화·심판은 4o
+MODEL_BY_ROUND = {
+    "initial": ("gpt-4o-mini", 350),
+    "debate_early": ("gpt-4o-mini", 400),
+    "debate_deep": ("gpt-4o", 500),
+    "judge": ("gpt-4o", 900),
+    "convergence": ("gpt-4o-mini", 30),
+}
+
 
 
 class DebateRequest(BaseModel):
@@ -65,56 +83,82 @@ class DebateHistory:
 
     def __init__(self):
         self.topic: str = ""
-        self.rounds: list[dict[str, str]] = []
-        self.round_titles: list[str] = []
+        self.rounds: list[dict] = []  # {"title": str, "responses": {agent_id: text}}
 
     def add_round(self, responses: dict[str, str], title: str):
-        self.rounds.append(responses)
-        self.round_titles.append(title)
+        self.rounds.append({"title": title, "responses": responses})
 
-    def format_transcript(self, from_round: int = 0) -> str:
+    def format_transcript(self) -> str:
         lines = []
-        for i, (round_data, title) in enumerate(
-            zip(self.rounds[from_round:], self.round_titles[from_round:]), from_round + 1
-        ):
-            lines.append(f"[Round {i} — {title}]")
+        for i, round_data in enumerate(self.rounds, 1):
+            lines.append(f"[Round {i} — {round_data['title']}]")
             for agent_id in DEBATE_AGENTS:
                 name = self.AGENT_NAMES[agent_id]
-                text = round_data.get(agent_id, "")
+                text = round_data["responses"].get(agent_id, "")
                 if text:
                     lines.append(f"{name}: {text}")
             lines.append("")
         return "\n".join(lines)
+
+    def to_serializable(self) -> list:
+        return self.rounds
+
+    @classmethod
+    def from_serializable(cls, rounds: list) -> "DebateHistory":
+        h = cls()
+        h.rounds = rounds
+        return h
 
 
 def sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def collect_agent_response(
-    agent_id: str, system_prompt: str, user_prompt: str, max_tokens: int = 500
+async def call_api(
+    agent_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    max_tokens: int,
+    retries: int = 3,
 ) -> tuple[str, str]:
-    full_text = ""
-    stream = await client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        stream=True,
-    )
-    async for chunk in stream:
-        text = chunk.choices[0].delta.content or ""
-        full_text += text
-    return agent_id, full_text
+    """API 호출 with exponential backoff retry"""
+    for attempt in range(retries):
+        try:
+            full_text = ""
+            stream = await client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=0.85,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                stream=True,
+            )
+            async for chunk in stream:
+                text = chunk.choices[0].delta.content or ""
+                full_text += text
+            return agent_id, full_text
+
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            if attempt == retries - 1:
+                return agent_id, f"[응답 실패: {type(e).__name__}]"
+            wait = 2 ** attempt
+            await asyncio.sleep(wait)
+
+        except Exception as e:
+            return agent_id, f"[오류: {str(e)[:50]}]"
+
+    return agent_id, "[응답 실패]"
 
 
 async def check_convergence(topic: str, transcript: str) -> bool:
     try:
+        model, _ = MODEL_BY_ROUND["convergence"][0], MODEL_BY_ROUND["convergence"][1]
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=30,
+            model=MODEL_BY_ROUND["convergence"][0],
+            max_tokens=MODEL_BY_ROUND["convergence"][1],
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": CONVERGENCE_CHECK_SYSTEM},
@@ -133,8 +177,11 @@ async def emit_agents(
     prompt: str,
     history: DebateHistory,
     round_title: str,
+    model_key: str,
+    session_id: str,
 ) -> AsyncGenerator[str, None]:
-    """에이전트 thinking → 병렬 호출 → 순서대로 SSE 출력"""
+    model, max_tokens = MODEL_BY_ROUND[model_key]
+
     for agent_id in agent_order:
         yield sse_event("agent_thinking", {
             "agent_id": agent_id,
@@ -143,10 +190,13 @@ async def emit_agents(
         })
 
     tasks = [
-        collect_agent_response(agent_id, AGENTS[agent_id]["system_prompt"], prompt)
+        call_api(agent_id, AGENTS[agent_id]["system_prompt"], prompt, model, max_tokens)
         for agent_id in agent_order
     ]
     results = await asyncio.gather(*tasks)
+
+    # 사용량 로깅
+    await log_usage(session_id, round_num, len(agent_order), model, datetime.now().isoformat())
 
     round_responses = {agent_id: text for agent_id, text in results}
 
@@ -190,43 +240,44 @@ async def run_debate(
     round_num = len(history.rounds) + 1
 
     if is_feedback:
-        # ── 피드백 기반 재토론 ──
         transcript = history.format_transcript()
         feedback_prompt = FEEDBACK_PROMPT.format(
-            topic=topic,
-            transcript=transcript,
-            feedback=feedback,
+            topic=topic, transcript=transcript, feedback=feedback
         )
-
-        title = f"피드백 반영 토론"
+        title = "피드백 반영 토론"
         yield sse_event("round_start", {"round": round_num, "title": title})
-        async for event in emit_agents(round_num, DEBATE_AGENTS, feedback_prompt, history, title):
+        async for event in emit_agents(
+            round_num, DEBATE_AGENTS, feedback_prompt, history, title, "debate_deep", session_id
+        ):
             yield event
         yield sse_event("round_end", {"round": round_num})
         round_num += 1
 
-        # 피드백 후 추가 1라운드 더
         transcript = history.format_transcript()
         debate_prompt = DEBATE_PROMPT.format(topic=topic, transcript=transcript)
         title2 = "심화 논의"
         yield sse_event("round_start", {"round": round_num, "title": title2})
         agent_order = ["critic", "veteran", "optimist", "businessman", "realist"]
-        async for event in emit_agents(round_num, agent_order, debate_prompt, history, title2):
+        async for event in emit_agents(
+            round_num, agent_order, debate_prompt, history, title2, "debate_deep", session_id
+        ):
             yield event
         yield sse_event("round_end", {"round": round_num})
         round_num += 1
 
     else:
-        # ── Round 1: 초기 의견 ──
+        # Round 1: 초기 의견 (mini로 비용 절감)
         title = "초기 의견 제시"
         yield sse_event("round_start", {"round": round_num, "title": title})
         initial_prompt = INITIAL_PROMPT.format(topic=topic)
-        async for event in emit_agents(round_num, DEBATE_AGENTS, initial_prompt, history, title):
+        async for event in emit_agents(
+            round_num, DEBATE_AGENTS, initial_prompt, history, title, "initial", session_id
+        ):
             yield event
         yield sse_event("round_end", {"round": round_num})
         round_num += 1
 
-        # ── 동적 토론 라운드 ──
+        # 동적 토론 라운드
         debate_round = 2
         while debate_round <= MAX_DEBATE_ROUNDS:
             transcript = history.format_transcript()
@@ -245,18 +296,22 @@ async def run_debate(
             else:
                 agent_order = ["critic", "veteran", "optimist", "businessman", "realist"]
 
+            # 초반은 mini, 3라운드 이후는 4o
+            model_key = "debate_early" if debate_round <= 3 else "debate_deep"
+
             debate_prompt = DEBATE_PROMPT.format(topic=topic, transcript=transcript)
-            async for event in emit_agents(round_num, agent_order, debate_prompt, history, round_title):
+            async for event in emit_agents(
+                round_num, agent_order, debate_prompt, history, round_title, model_key, session_id
+            ):
                 yield event
             yield sse_event("round_end", {"round": round_num})
 
             round_num += 1
             debate_round += 1
 
-    # ── 최종 심판 ──
+    # 최종 심판
     judge_round = round_num
     yield sse_event("round_start", {"round": judge_round, "title": "심판 최종 결론"})
-
     yield sse_event("agent_thinking", {
         "agent_id": "judge",
         "agent_name": AGENTS["judge"]["name"],
@@ -265,9 +320,11 @@ async def run_debate(
 
     transcript = history.format_transcript()
     judge_prompt = JUDGE_PROMPT.format(topic=topic, transcript=transcript)
-    _, judge_response = await collect_agent_response(
-        "judge", AGENTS["judge"]["system_prompt"], judge_prompt, max_tokens=900
+    model, max_tokens = MODEL_BY_ROUND["judge"]
+    _, judge_response = await call_api(
+        "judge", AGENTS["judge"]["system_prompt"], judge_prompt, model, max_tokens
     )
+    await log_usage(session_id, judge_round, 1, model, datetime.now().isoformat())
 
     yield sse_event("agent_start", {
         "agent_id": "judge",
@@ -282,15 +339,10 @@ async def run_debate(
         "full_text": judge_response,
         "round": judge_round,
     })
-
     yield sse_event("round_end", {"round": judge_round})
 
-    # 세션 저장
-    sessions[session_id] = {
-        "topic": topic,
-        "history": history,
-        "updated_at": datetime.now().isoformat(),
-    }
+    # DB 저장
+    await save_session(session_id, topic, history.to_serializable(), datetime.now().isoformat())
 
     yield sse_event("debate_end", {
         "topic": topic,
@@ -301,7 +353,7 @@ async def run_debate(
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "Debate Arena API v3"}
+    return {"status": "ok", "service": "Debate Arena API v3.1"}
 
 
 @app.get("/api/agents")
@@ -316,25 +368,36 @@ async def get_agents():
     }
 
 
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str):
+    session = await load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return session
+
+
 @app.post("/api/debate")
 async def start_debate(request: DebateRequest):
-    if not request.topic.strip():
+    if not request.topic or not request.topic.strip():
         raise HTTPException(status_code=400, detail="토론 주제를 입력해주세요.")
 
+    topic = request.topic.strip()
+    if len(topic) > 500:
+        raise HTTPException(status_code=400, detail="주제는 500자 이내로 입력해주세요.")
+
     if request.session_id and request.feedback:
-        # 기존 세션 이어서
-        session = sessions.get(request.session_id)
-        if not session:
+        session_data = await load_session(request.session_id)
+        if not session_data:
             raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
-        history = session["history"]
+        history = DebateHistory.from_serializable(session_data["rounds"])
+        history.topic = session_data["topic"]
         session_id = request.session_id
     else:
-        # 새 세션
         history = DebateHistory()
         session_id = str(uuid.uuid4())
 
     return StreamingResponse(
-        run_debate(request.topic.strip(), session_id, history, request.feedback),
+        run_debate(topic, session_id, history, request.feedback),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
