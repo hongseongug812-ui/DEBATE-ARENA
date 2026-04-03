@@ -4,6 +4,7 @@ database.py — SQLite 세션 영속화
 import json
 import aiosqlite
 import os
+from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "debate_sessions.db")
 
@@ -30,7 +31,39 @@ async def init_db():
                 created_at TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS daily_limit (
+                ip TEXT NOT NULL,
+                date TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (ip, date)
+            )
+        """)
         await db.commit()
+
+
+async def check_and_increment_limit(ip: str, max_per_day: int = 10) -> bool:
+    """하루 max_per_day회 초과 시 False 반환"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT count FROM daily_limit WHERE ip=? AND date=?", (ip, today)
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if row and row[0] >= max_per_day:
+            return False
+
+        if row:
+            await db.execute(
+                "UPDATE daily_limit SET count=count+1 WHERE ip=? AND date=?", (ip, today)
+            )
+        else:
+            await db.execute(
+                "INSERT INTO daily_limit (ip, date, count) VALUES (?,?,1)", (ip, today)
+            )
+        await db.commit()
+        return True
 
 
 async def save_session(session_id: str, topic: str, rounds: list, updated_at: str):

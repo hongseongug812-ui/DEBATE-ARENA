@@ -340,9 +340,11 @@
 
 .message-text {
   font-size: 14px;
-  line-height: 1.75;
+  line-height: 1.85;
   color: var(--text-primary);
   word-break: keep-all;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
   background: var(--bg-elevated);
   padding: 14px 18px;
   border-radius: 2px var(--radius-md) var(--radius-md) var(--radius-md);

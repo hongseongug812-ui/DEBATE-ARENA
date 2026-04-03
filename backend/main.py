@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -28,7 +28,7 @@ from agents import (
     FEEDBACK_PROMPT,
     CONVERGENCE_CHECK_SYSTEM,
 )
-from database import init_db, save_session, load_session, log_usage
+from database import init_db, save_session, load_session, log_usage, check_and_increment_limit
 
 load_dotenv()
 
@@ -39,8 +39,7 @@ async def lifespan(app):
     await init_db()
     yield
 
-app = FastAPI(title="Debate Arena API", version="3.1.0", lifespan=lifespan)
-
+app = FastAPI(title="Debate Arena API", version="3.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -377,27 +376,32 @@ async def get_session(session_id: str):
 
 
 @app.post("/api/debate")
-async def start_debate(request: DebateRequest):
-    if not request.topic or not request.topic.strip():
+async def start_debate(http_request: Request, body: DebateRequest):
+    ip = http_request.client.host if http_request.client else "unknown"
+    allowed = await check_and_increment_limit(ip, max_per_day=10)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="일일 사용 한도(10회)를 초과했습니다. 내일 다시 시도해주세요.")
+
+    if not body.topic or not body.topic.strip():
         raise HTTPException(status_code=400, detail="토론 주제를 입력해주세요.")
 
-    topic = request.topic.strip()
+    topic = body.topic.strip()
     if len(topic) > 500:
         raise HTTPException(status_code=400, detail="주제는 500자 이내로 입력해주세요.")
 
-    if request.session_id and request.feedback:
-        session_data = await load_session(request.session_id)
+    if body.session_id and body.feedback:
+        session_data = await load_session(body.session_id)
         if not session_data:
             raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
         history = DebateHistory.from_serializable(session_data["rounds"])
         history.topic = session_data["topic"]
-        session_id = request.session_id
+        session_id = body.session_id
     else:
         history = DebateHistory()
         session_id = str(uuid.uuid4())
 
     return StreamingResponse(
-        run_debate(topic, session_id, history, request.feedback),
+        run_debate(topic, session_id, history, body.feedback),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
