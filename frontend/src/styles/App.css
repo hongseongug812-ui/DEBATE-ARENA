@@ -173,7 +173,7 @@
 }
 
 .round-dot[data-complete="true"] {
-  background: var(--optimist);
+  background: #22c55e;
 }
 
 /* ── Main Content ── */
@@ -430,10 +430,10 @@
   50%       { opacity: 1;   transform: translateY(-4px); }
 }
 
-/* Judge message special styling */
-.message-bubble[data-agent="judge"] .message-text {
-  background: linear-gradient(135deg, var(--bg-elevated), rgba(251, 191, 36, 0.04));
-  border-color: rgba(251, 191, 36, 0.2);
+/* Chair message special styling */
+.message-bubble[data-agent="chair"] .message-text {
+  background: linear-gradient(135deg, var(--bg-elevated), rgba(107, 114, 128, 0.06));
+  border-color: rgba(107, 114, 128, 0.25);
 }
 
 /* ── Input Bar ── */

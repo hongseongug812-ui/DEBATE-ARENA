@@ -16,8 +16,7 @@ export default function App() {
   const [currentTopic, setCurrentTopic] = useState('');
   const [messages, setMessages] = useState([]);
   const [agentStates, setAgentStates] = useState({
-    ceo: 'idle', cfo: 'idle', cto: 'idle', cmo: 'idle', bd: 'idle',
-    legal: 'idle', ux: 'idle', data: 'idle', junior: 'idle', chair: 'idle',
+    ceo: 'idle', cfo: 'idle', cto: 'idle', cmo: 'idle', legal: 'idle', junior: 'idle', chair: 'idle',
   });
   const [streamingAgent, setStreamingAgent] = useState(null);
   const [error, setError] = useState(null);
@@ -33,8 +32,7 @@ export default function App() {
 
   const resetAgentStates = useCallback(() => {
     setAgentStates({
-      ceo: 'idle', cfo: 'idle', cto: 'idle', cmo: 'idle', bd: 'idle',
-      legal: 'idle', ux: 'idle', data: 'idle', junior: 'idle', chair: 'idle',
+      ceo: 'idle', cfo: 'idle', cto: 'idle', cmo: 'idle', legal: 'idle', junior: 'idle', chair: 'idle',
     });
     setStreamingAgent(null);
     setCurrentRound(0);
@@ -237,7 +235,7 @@ export default function App() {
               <div className="chat-empty-title">DEBATE ARENA</div>
               <div className="chat-empty-desc">
                 고민이나 질문을 입력하면<br />
-                9명의 회사 멤버가 실시간으로 토론하고<br />
+                6명의 회사 멤버가 실시간으로 토론하고<br />
                 의장이 최종 결론을 내려드립니다
               </div>
             </div>

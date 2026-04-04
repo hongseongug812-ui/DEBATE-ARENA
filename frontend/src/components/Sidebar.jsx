@@ -1,16 +1,13 @@
 import PixelCharacter from './PixelCharacter';
 
 const AGENT_INFO = {
-  ceo:    { name: '대표',        role: 'CEO — 비전과 결단',         color: '#dc2626' },
-  cfo:    { name: 'CFO',         role: 'CFO — 재무와 숫자',         color: '#16a34a' },
-  cto:    { name: 'CTO',         role: 'CTO — 기술 실현 가능성',    color: '#2563eb' },
-  cmo:    { name: 'CMO',         role: 'CMO — 마케팅과 고객',       color: '#db2777' },
-  bd:     { name: 'BD팀장',      role: 'BD — 파트너십과 투자',      color: '#7c3aed' },
-  legal:  { name: '법무팀장',    role: 'Legal — 리스크와 규정',     color: '#b45309' },
-  ux:     { name: 'UX디자이너',  role: 'UX — 사용자 경험',          color: '#0891b2' },
-  data:   { name: '데이터분석가', role: 'Data — 숫자로 검증',       color: '#0d9488' },
-  junior: { name: 'MZ신입',      role: 'Junior — Z세대 트렌드',     color: '#d97706' },
-  chair:  { name: '의장',        role: 'Chair — 최종 결론',         color: '#6b7280' },
+  ceo:    { name: '대표',      role: 'CEO — 비전과 결단',      color: '#dc2626' },
+  cfo:    { name: 'CFO',       role: 'CFO — 재무와 숫자',      color: '#16a34a' },
+  cto:    { name: 'CTO',       role: 'CTO — 기술 실현 가능성', color: '#2563eb' },
+  cmo:    { name: 'CMO',       role: 'CMO — 마케팅과 고객',    color: '#db2777' },
+  legal:  { name: '법무팀장',  role: 'Legal — 리스크와 규정',  color: '#b45309' },
+  junior: { name: 'MZ신입',    role: 'Junior — Z세대 트렌드',  color: '#d97706' },
+  chair:  { name: '의장',      role: 'Chair — 최종 결론',      color: '#6b7280' },
 };
 
 const STATE_LABELS = {

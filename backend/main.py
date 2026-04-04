@@ -48,9 +48,9 @@ app.add_middleware(
 
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-DEBATE_AGENTS = ["ceo", "cfo", "cto", "cmo", "bd", "legal", "ux", "data", "junior"]
+DEBATE_AGENTS = ["ceo", "cfo", "cto", "cmo", "legal", "junior"]
 MAX_ROUNDS = 5
-MIN_ROUNDS = 3  # 수렴 체크 시작 라운드
+MIN_ROUNDS = 1  # 수렴 체크 시작 라운드
 
 # 라운드별 모델 (비용 최적화)
 def get_model(round_num: int) -> tuple[str, int]:
@@ -322,7 +322,7 @@ async def run_debate(
         # 피드백: 법무·CTO가 먼저 제동 → 나머지 반응
         title = "피드백 반영 회의"
         yield sse_event("round_start", {"round": round_num, "title": title})
-        agent_order = ["legal", "cto", "ceo", "cmo", "cfo", "bd", "ux", "data", "junior"]
+        agent_order = ["legal", "cto", "ceo", "cmo", "cfo", "junior"]
         async for event in run_debate_round(
             round_num, title, topic, agent_order, history, session_id, feedback
         ):
@@ -333,7 +333,7 @@ async def run_debate(
         # 피드백 후 심화 1라운드
         title2 = "심화 논의"
         yield sse_event("round_start", {"round": round_num, "title": title2})
-        agent_order2 = ["data", "cfo", "cto", "bd", "cmo", "legal", "ux", "junior", "ceo"]
+        agent_order2 = ["cfo", "cto", "cmo", "legal", "junior", "ceo"]
         async for event in run_debate_round(
             round_num, title2, topic, agent_order2, history, session_id
         ):
@@ -354,16 +354,16 @@ async def run_debate(
 
             if round_count == 1:
                 title = "초기 의견 제시"
-                # 첫 라운드: 대표가 포문 → 각 팀장이 순서대로 반응
-                agent_order = ["ceo", "cfo", "cto", "cmo", "bd", "legal", "ux", "data", "junior"]
+                # 첫 라운드: 대표가 포문 → 팀원 순서대로 반응
+                agent_order = ["ceo", "cfo", "cto", "cmo", "legal", "junior"]
             elif round_count % 2 == 0:
                 title = f"반론 및 심화 {round_count - 1}라운드"
-                # 법무·CFO·CTO 먼저 → 긴장감 조성
-                agent_order = ["legal", "cfo", "cto", "data", "bd", "cmo", "ux", "junior", "ceo"]
+                # 법무·CFO 먼저 → 긴장감 조성
+                agent_order = ["legal", "cfo", "cto", "junior", "cmo", "ceo"]
             else:
                 title = f"보완 및 수렴 {round_count - 1}라운드"
-                # 데이터·UX 먼저 → 근거 기반 정리
-                agent_order = ["data", "ux", "cmo", "ceo", "bd", "cto", "cfo", "legal", "junior"]
+                # CTO 먼저 → 근거 기반 정리
+                agent_order = ["cto", "cmo", "ceo", "cfo", "legal", "junior"]
 
             yield sse_event("round_start", {"round": round_num, "title": title})
             async for event in run_debate_round(

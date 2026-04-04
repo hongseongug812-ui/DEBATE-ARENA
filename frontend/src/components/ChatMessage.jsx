@@ -1,16 +1,13 @@
 import PixelCharacter from './PixelCharacter';
 
 const AGENT_META = {
-  ceo:    { name: '대표',         color: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
-  cfo:    { name: 'CFO',          color: '#16a34a', bg: 'rgba(22,163,74,0.08)' },
-  cto:    { name: 'CTO',          color: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
-  cmo:    { name: 'CMO',          color: '#db2777', bg: 'rgba(219,39,119,0.08)' },
-  bd:     { name: 'BD팀장',       color: '#7c3aed', bg: 'rgba(124,58,237,0.08)' },
-  legal:  { name: '법무팀장',     color: '#b45309', bg: 'rgba(180,83,9,0.08)' },
-  ux:     { name: 'UX디자이너',   color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
-  data:   { name: '데이터분석가', color: '#0d9488', bg: 'rgba(13,148,136,0.08)' },
-  junior: { name: 'MZ신입',       color: '#d97706', bg: 'rgba(217,119,6,0.08)' },
-  chair:  { name: '의장',         color: '#6b7280', bg: 'rgba(107,114,128,0.08)' },
+  ceo:    { name: '대표',      color: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
+  cfo:    { name: 'CFO',       color: '#16a34a', bg: 'rgba(22,163,74,0.08)' },
+  cto:    { name: 'CTO',       color: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
+  cmo:    { name: 'CMO',       color: '#db2777', bg: 'rgba(219,39,119,0.08)' },
+  legal:  { name: '법무팀장',  color: '#b45309', bg: 'rgba(180,83,9,0.08)' },
+  junior: { name: 'MZ신입',    color: '#d97706', bg: 'rgba(217,119,6,0.08)' },
+  chair:  { name: '의장',      color: '#6b7280', bg: 'rgba(107,114,128,0.08)' },
 };
 
 export function TypingIndicator({ agentId }) {
