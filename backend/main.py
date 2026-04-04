@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -22,13 +22,17 @@ from dotenv import load_dotenv
 
 from agents import AGENTS, JUDGE_PROMPT, CONVERGENCE_CHECK_SYSTEM
 from database import init_db, save_session, load_session, log_usage, check_and_increment_limit
+from auth import init_auth_db, create_api_key, verify_and_consume
 
 load_dotenv()
+
+MASTER_KEY = os.getenv("MASTER_KEY", "debate-arena-admin")
 
 
 @asynccontextmanager
 async def lifespan(app):
     await init_db()
+    await init_auth_db()
     yield
 
 app = FastAPI(title="Debate Arena API", version="4.0.0", lifespan=lifespan)
@@ -433,12 +437,35 @@ async def get_session(session_id: str):
     return session
 
 
+class KeyCreateRequest(BaseModel):
+    label: str = ""
+    daily_limit: int = 10
+
+
+@app.post("/api/keys")
+async def api_create_key(body: KeyCreateRequest, x_master_key: str | None = Header(default=None)):
+    if x_master_key != MASTER_KEY:
+        raise HTTPException(status_code=403, detail="마스터 키가 올바르지 않습니다.")
+    raw_key = await create_api_key(label=body.label, limit=body.daily_limit)
+    return {"api_key": raw_key, "label": body.label, "daily_limit": body.daily_limit}
+
+
 @app.post("/api/debate")
-async def start_debate(http_request: Request, body: DebateRequest):
-    ip = http_request.client.host if http_request.client else "unknown"
-    allowed = await check_and_increment_limit(ip, max_per_day=10)
-    if not allowed:
-        raise HTTPException(status_code=429, detail="일일 사용 한도(10회)를 초과했습니다. 내일 다시 시도해주세요.")
+async def start_debate(
+    http_request: Request,
+    body: DebateRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    # API 키 인증 (있으면 키 기반, 없으면 IP 기반)
+    if x_api_key:
+        allowed, err_msg = await verify_and_consume(x_api_key)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=err_msg)
+    else:
+        ip = http_request.client.host if http_request.client else "unknown"
+        allowed = await check_and_increment_limit(ip, max_per_day=10)
+        if not allowed:
+            raise HTTPException(status_code=429, detail="일일 사용 한도(10회)를 초과했습니다. 내일 다시 시도해주세요.")
 
     if not body.topic or not body.topic.strip():
         raise HTTPException(status_code=400, detail="토론 주제를 입력해주세요.")
