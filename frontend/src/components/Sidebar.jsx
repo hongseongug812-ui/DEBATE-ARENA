@@ -1,12 +1,16 @@
 import PixelCharacter from './PixelCharacter';
 
 const AGENT_INFO = {
-  optimist:   { name: '낙관론자',  role: 'Optimist — 기회 탐색',    color: 'var(--optimist)' },
-  critic:     { name: '비판론자',  role: 'Critic — 리스크 분석',    color: 'var(--critic)' },
-  realist:    { name: '현실주의자', role: 'Realist — 현실 판단',    color: 'var(--realist)' },
-  businessman:{ name: '사업가',    role: 'Businessman — 비즈니스 관점', color: 'var(--businessman)' },
-  veteran:  { name: '개발 20년차',    role: '20yr Dev — 실전 경험',   color: 'var(--veteran)' },
-  judge:      { name: '심판',      role: 'Judge — 최종 결론',       color: 'var(--judge)' },
+  ceo:    { name: '대표',        role: 'CEO — 비전과 결단',         color: '#dc2626' },
+  cfo:    { name: 'CFO',         role: 'CFO — 재무와 숫자',         color: '#16a34a' },
+  cto:    { name: 'CTO',         role: 'CTO — 기술 실현 가능성',    color: '#2563eb' },
+  cmo:    { name: 'CMO',         role: 'CMO — 마케팅과 고객',       color: '#db2777' },
+  bd:     { name: 'BD팀장',      role: 'BD — 파트너십과 투자',      color: '#7c3aed' },
+  legal:  { name: '법무팀장',    role: 'Legal — 리스크와 규정',     color: '#b45309' },
+  ux:     { name: 'UX디자이너',  role: 'UX — 사용자 경험',          color: '#0891b2' },
+  data:   { name: '데이터분석가', role: 'Data — 숫자로 검증',       color: '#0d9488' },
+  junior: { name: 'MZ신입',      role: 'Junior — Z세대 트렌드',     color: '#d97706' },
+  chair:  { name: '의장',        role: 'Chair — 최종 결론',         color: '#6b7280' },
 };
 
 const STATE_LABELS = {
@@ -32,9 +36,9 @@ export default function Sidebar({
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <div className="sidebar-logo-dot" style={{
-              background: isDebating ? 'var(--optimist)' : 'var(--accent)',
+              background: isDebating ? '#dc2626' : 'var(--accent)',
               boxShadow: isDebating
-                ? '0 0 8px var(--optimist)'
+                ? '0 0 8px #dc2626'
                 : '0 0 8px var(--accent)',
             }} />
             <h1>DEBATE ARENA</h1>
@@ -55,8 +59,6 @@ export default function Sidebar({
                 data-active={isActive}
                 style={{
                   '--agent-color': info.color,
-                  '--agent-glow': info.color.replace(')', ', 0.3)').replace('var(', 'rgba('),
-                  '--agent-bg': info.color.replace(')', ', 0.08)').replace('var(', 'rgba('),
                 }}
               >
                 <div className="agent-card-avatar">
@@ -71,14 +73,7 @@ export default function Sidebar({
                 <div
                   className="agent-card-status"
                   data-state={state}
-                  style={{
-                    '--agent-color': info.color,
-                    '--agent-bg': info.color,
-                    color: isActive ? info.color : undefined,
-                    background: isActive
-                      ? undefined
-                      : undefined,
-                  }}
+                  style={{ color: isActive ? info.color : undefined }}
                 >
                   {STATE_LABELS[state] || state}
                 </div>

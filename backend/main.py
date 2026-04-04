@@ -21,6 +21,8 @@ from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIConnectionEr
 from dotenv import load_dotenv
 
 from agents import AGENTS, JUDGE_PROMPT, CONVERGENCE_CHECK_SYSTEM
+
+JUDGE_AGENT = "chair"
 from database import init_db, save_session, load_session, log_usage, check_and_increment_limit
 from auth import init_auth_db, create_api_key, verify_and_consume
 
@@ -46,7 +48,7 @@ app.add_middleware(
 
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-DEBATE_AGENTS = ["optimist", "critic", "realist", "businessman", "veteran"]
+DEBATE_AGENTS = ["ceo", "cfo", "cto", "cmo", "bd", "legal", "ux", "data", "junior"]
 MAX_ROUNDS = 5
 MIN_ROUNDS = 3  # 수렴 체크 시작 라운드
 
@@ -94,6 +96,7 @@ class ConversationRound:
 
 class DebateHistory:
     AGENT_NAMES = {a: AGENTS[a]["name"] for a in DEBATE_AGENTS}
+
 
     def __init__(self):
         self.topic: str = ""
@@ -316,10 +319,10 @@ async def run_debate(
     round_num = len(history.rounds) + 1
 
     if is_feedback:
-        # 피드백: 비판론자 먼저 → 나머지 반응
-        title = "피드백 반영 토론"
+        # 피드백: 법무·CTO가 먼저 제동 → 나머지 반응
+        title = "피드백 반영 회의"
         yield sse_event("round_start", {"round": round_num, "title": title})
-        agent_order = ["critic", "optimist", "veteran", "businessman", "realist"]
+        agent_order = ["legal", "cto", "ceo", "cmo", "cfo", "bd", "ux", "data", "junior"]
         async for event in run_debate_round(
             round_num, title, topic, agent_order, history, session_id, feedback
         ):
@@ -327,10 +330,10 @@ async def run_debate(
         yield sse_event("round_end", {"round": round_num})
         round_num += 1
 
-        # 피드백 후 심화 1라운드 추가
+        # 피드백 후 심화 1라운드
         title2 = "심화 논의"
         yield sse_event("round_start", {"round": round_num, "title": title2})
-        agent_order2 = ["veteran", "businessman", "critic", "realist", "optimist"]
+        agent_order2 = ["data", "cfo", "cto", "bd", "cmo", "legal", "ux", "junior", "ceo"]
         async for event in run_debate_round(
             round_num, title2, topic, agent_order2, history, session_id
         ):
@@ -351,16 +354,16 @@ async def run_debate(
 
             if round_count == 1:
                 title = "초기 의견 제시"
-                # 첫 라운드: 낙관론자가 첫 발언, 나머지가 반응
-                agent_order = ["optimist", "critic", "realist", "businessman", "veteran"]
+                # 첫 라운드: 대표가 포문 → 각 팀장이 순서대로 반응
+                agent_order = ["ceo", "cfo", "cto", "cmo", "bd", "legal", "ux", "data", "junior"]
             elif round_count % 2 == 0:
                 title = f"반론 및 심화 {round_count - 1}라운드"
-                # 비판론자·개발자 먼저 → 분위기 긴장
-                agent_order = ["critic", "veteran", "businessman", "realist", "optimist"]
+                # 법무·CFO·CTO 먼저 → 긴장감 조성
+                agent_order = ["legal", "cfo", "cto", "data", "bd", "cmo", "ux", "junior", "ceo"]
             else:
                 title = f"보완 및 수렴 {round_count - 1}라운드"
-                # 현실주의자 먼저 → 중재 역할
-                agent_order = ["realist", "optimist", "critic", "veteran", "businessman"]
+                # 데이터·UX 먼저 → 근거 기반 정리
+                agent_order = ["data", "ux", "cmo", "ceo", "bd", "cto", "cfo", "legal", "junior"]
 
             yield sse_event("round_start", {"round": round_num, "title": title})
             async for event in run_debate_round(
@@ -372,12 +375,12 @@ async def run_debate(
             round_num += 1
             round_count += 1
 
-    # 최종 심판 — 전체 대화 기록 기반
+    # 최종 의장 결론 — 전체 회의 기록 기반
     judge_round = round_num
-    yield sse_event("round_start", {"round": judge_round, "title": "심판 최종 결론"})
+    yield sse_event("round_start", {"round": judge_round, "title": "의장 최종 결론"})
     yield sse_event("agent_thinking", {
-        "agent_id": "judge",
-        "agent_name": AGENTS["judge"]["name"],
+        "agent_id": JUDGE_AGENT,
+        "agent_name": AGENTS[JUDGE_AGENT]["name"],
         "round": judge_round,
     })
 
@@ -385,18 +388,18 @@ async def run_debate(
     judge_prompt = JUDGE_PROMPT.format(topic=topic, transcript=transcript)
 
     yield sse_event("agent_start", {
-        "agent_id": "judge",
-        "agent_name": AGENTS["judge"]["name"],
+        "agent_id": JUDGE_AGENT,
+        "agent_name": AGENTS[JUDGE_AGENT]["name"],
         "round": judge_round,
     })
 
     judge_text = ""
-    async for token in stream_agent("judge", judge_prompt, "gpt-4o", 900):
+    async for token in stream_agent(JUDGE_AGENT, judge_prompt, "gpt-4o", 1200):
         judge_text += token
-        yield sse_event("agent_chunk", {"agent_id": "judge", "chunk": token})
+        yield sse_event("agent_chunk", {"agent_id": JUDGE_AGENT, "chunk": token})
 
     yield sse_event("agent_end", {
-        "agent_id": "judge",
+        "agent_id": JUDGE_AGENT,
         "full_text": judge_text,
         "round": judge_round,
     })
