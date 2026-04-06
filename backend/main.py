@@ -148,8 +148,16 @@ def build_agent_prompt(
         parts.append("")
 
     if feedback:
-        parts.append(f"=== 사용자 피드백 ===")
+        parts.append("=== 사용자 피드백 ===")
         parts.append(feedback)
+        parts.append("")
+        parts.append(
+            "【피드백 해석】\n"
+            "- '~가 잘했어 / ~말이 맞아 / ~의견이 좋아': 특정 팀원의 논점을 지지함. "
+            "당신의 관점으로 그 주장이 실제로 옳은지 평가하고 동의·보완 또는 반박하세요.\n"
+            "- '다른 방향 / 새 아이디어': 이전과 다른 각도로 접근하세요.\n"
+            "- 특정 방향 지시: 그 방향으로 구체화하세요."
+        )
         parts.append("")
 
     if round_so_far:
@@ -159,28 +167,27 @@ def build_agent_prompt(
         parts.append("=== 지시 ===")
         if round_num == 1:
             parts.append(
-                "위에서 다른 에이전트들이 발언했습니다. "
+                "위에서 다른 팀원들이 발언했습니다. "
                 "당신도 첫 의견을 밝히되, 방금 나온 발언 중 가장 날카롭다고 생각하는 것에 직접 반응하세요. "
-                "동의하면 강화하고, 틀렸다면 에이전트 이름 지목해 반박하세요."
+                "동의하면 강화하고, 틀렸다면 이름 지목해 반박하세요."
             )
         else:
             parts.append(
-                "위 발언들을 읽고, 가장 중요한 쟁점에 반응하세요. "
-                "에이전트 이름을 직접 언급하며 반박하거나 보완하고, 새 논거가 있으면 추가하세요."
+                "위 발언들을 읽고 가장 중요한 쟁점에 반응하세요. "
+                "팀원 이름을 직접 언급하며 반박하거나 보완하고, 새 논거가 있으면 추가하세요."
             )
     else:
         if round_num == 1:
             parts.append("=== 지시 ===")
             if feedback:
                 parts.append(
-                    "사용자 피드백을 반영해 당신의 관점에서 새로운 의견을 제시하세요. "
-                    "이전과 겹치지 않는 방향으로."
+                    "피드백을 바탕으로 당신의 페르소나 관점에서 의견을 제시하세요. "
+                    "특정 팀원을 지지하는 피드백이면 그 주장의 타당성을 직접 평가하세요."
                 )
             else:
                 parts.append(
                     "당신이 이 라운드 첫 발언자입니다. "
-                    "주제에 대해 당신의 페르소나 그대로 첫 의견을 밝히세요. "
-                    "아이디어 요청이면 구체적 아이디어 1~2개 직접 제시."
+                    "주제의 성격(아이디어 요청/의사결정/논쟁/분석)을 파악하고 당신의 페르소나에 맞게 첫 의견을 밝히세요."
                 )
 
     parts.append("\n4문장 이내. 반드시 한국어.")
@@ -385,7 +392,12 @@ async def run_debate(
     })
 
     transcript = history.format_full_transcript()
-    judge_prompt = JUDGE_PROMPT.format(topic=topic, transcript=transcript)
+    feedback_note = (
+        f"\n=== 사용자 피드백 ===\n{feedback}\n"
+        "피드백에서 특정 팀원을 지지·평가했다면 '다음 액션' 앞에 해당 팀원의 주장 타당성을 한 줄로 명시하세요.\n"
+        if feedback else ""
+    )
+    judge_prompt = JUDGE_PROMPT.format(topic=topic, transcript=transcript) + feedback_note
 
     yield sse_event("agent_start", {
         "agent_id": JUDGE_AGENT,
